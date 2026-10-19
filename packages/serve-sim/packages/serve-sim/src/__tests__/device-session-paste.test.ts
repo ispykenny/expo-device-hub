@@ -52,7 +52,7 @@ function session(
     inputStateWaiters: new Set(),
     pendingOrderedMessages: new WeakMap(),
     inFlightOrderedMessages: new WeakMap(),
-    failedInputSockets: new WeakSet(),
+    orderedInputFailures: new WeakMap(),
     cleanedUpHidSockets: new WeakSet(),
     activeTouches: new WeakMap(),
     activeMultiTouches: new WeakMap(),
