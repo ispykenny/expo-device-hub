@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 
 let setupResult: "ready" | "missing-encoder" | "service-failure" = "ready";
 let calls: string[] = [];
+let buttonsFail = false;
 const addon = {
   SimHID: class {
     async setScreen() {
@@ -18,6 +19,11 @@ const addon = {
     }
     async button() {
       calls.push("button");
+      if (buttonsFail) throw new Error("CoreDevice button input is unavailable or failed");
+    }
+    async buttonHid() {
+      calls.push("buttonHid");
+      if (buttonsFail) throw new Error("CoreDevice button input is unavailable or failed");
     }
     async orientation() {
       calls.push("orientation");
@@ -47,6 +53,7 @@ let errors: ReturnType<typeof spyOn>;
 beforeEach(() => {
   calls = [];
   setupResult = "ready";
+  buttonsFail = false;
   errors = spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
@@ -63,13 +70,13 @@ test("service failure latches the shared gate and short-circuits later controls"
   setupResult = "ready";
   await hid.setScreen(1);
   await hid.touch("begin", 0.5, 0.5, 100, 100);
-  await hid.button("home");
+  await expect(hid.button("home")).rejects.toThrow("Simulator input is unavailable");
   expect(await hid.orientation(1)).toBe(false);
   await hid.memoryWarning();
   await hid.key("down", 4);
   await expect(hid.keyChecked("down", 4)).rejects.toThrow("Simulator input is unavailable");
   expect(calls).toEqual(["setScreen"]);
-  expect(errors).toHaveBeenCalledTimes(1);
+  expect(errors).toHaveBeenCalledTimes(2);
 
   const replacement = new NativeHid("HID-SERVICE-FAILURE-TEST");
   await replacement.setScreen(1);
@@ -93,4 +100,16 @@ test("missing key encoder rejects keys while retaining touch and other controls"
     "Simulator keyboard input is unavailable",
   );
   expect(calls).toEqual(["setScreen", "touch", "button", "orientation", "memoryWarning"]);
+});
+
+test("failed native buttons reject for input acknowledgement without disabling touch", async () => {
+  const hid = new NativeHid("HID-BUTTON-FAILURE-TEST");
+  await hid.setScreen(1);
+  buttonsFail = true;
+  await expect(hid.button("lock")).rejects.toThrow("CoreDevice button input");
+  await expect(hid.buttonHid(0x0c, 0xe9)).rejects.toThrow("CoreDevice button input");
+  expect(hid.inputUnavailable).toBe(false);
+  await hid.touch("begin", 0.5, 0.5, 100, 100);
+  expect(calls).toEqual(["setScreen", "button", "buttonHid", "touch"]);
+  expect(errors).toHaveBeenCalledTimes(2);
 });

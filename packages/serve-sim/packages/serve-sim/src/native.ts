@@ -316,11 +316,22 @@ export class NativeHid {
   }
 
   button(button: string): Promise<void> {
-    return this.guard("button", () => this.handle.button(button), undefined);
+    return this.buttonChecked("button", () => this.handle.button(button));
   }
 
   buttonHid(page: number, usage: number, phase: ButtonPhase = "press"): Promise<void> {
-    return this.guard("buttonHid", () => this.handle.buttonHid(page, usage, phase), undefined);
+    return this.buttonChecked("buttonHid", () => this.handle.buttonHid(page, usage, phase));
+  }
+
+  // Let the socket's input barrier report failure instead of acknowledging a drop.
+  private async buttonChecked(operation: string, send: () => PromiseLike<void>): Promise<void> {
+    try {
+      if (this.inputUnavailable) throw new Error("Simulator input is unavailable");
+      await send();
+    } catch (error) {
+      console.error(`[hid] ${operation} rejected:`, error instanceof Error ? error.message : error);
+      throw error;
+    }
   }
 
   key(type: KeyType, usage: number): Promise<void> {

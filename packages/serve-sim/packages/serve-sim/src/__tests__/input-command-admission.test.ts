@@ -24,7 +24,13 @@ type InputTarget = {
   liveDevices: string[];
 };
 
-async function runInput(args: string[], admit: boolean, legacy = false, target?: InputTarget) {
+async function runInput(
+  args: string[],
+  admit: boolean,
+  legacy = false,
+  target?: InputTarget,
+  buttonSuccess = true,
+) {
   const dir = mkdtempSync(join(tmpdir(), "serve-sim-cli-admission-"));
   const shim = join(dir, "bin");
   mkdirSync(shim);
@@ -77,8 +83,9 @@ esac
       },
       message(socket, data) {
         if (!admitted) sentBeforeAdmission = true;
-        messages.push(Buffer.from(data)[0]!);
-        if (Buffer.from(data)[0] === 0x11) socket.send(Buffer.from([0x91, 1]));
+        const opcode = Buffer.from(data)[0]!;
+        messages.push(opcode);
+        if (opcode === 0x11) socket.send(Buffer.from([0x91, buttonSuccess ? 1 : 0]));
       },
     },
   });
@@ -186,7 +193,7 @@ for (const { args, messages } of commands) {
       expect(result.exitCode).toBe(0);
       expect(result.connections).toEqual([`/legacy/${secondDevice}/ws`]);
       expect(result.sentBeforeAdmission).toBe(false);
-      expect(result.messages).toEqual(messages);
+      expect(result.messages).toEqual(args[0] === "button" ? [...messages, 0x11] : messages);
     });
   }
 
@@ -204,7 +211,7 @@ for (const { args, messages } of commands) {
     const result = await runInput(args, /* admit */ true);
     expect(result.exitCode).toBe(0);
     expect(result.sentBeforeAdmission).toBe(false);
-    expect(result.messages).toEqual(messages);
+    expect(result.messages).toEqual(args[0] === "button" ? [...messages, 0x11] : messages);
   });
 
   test(`CLI ${args[0]} can still use a legacy helper without an admission frame`, async () => {
@@ -261,4 +268,11 @@ test("a normal close before admission fails immediately and cancels the deadline
   await Bun.sleep(25);
   expect(errors).toHaveLength(1);
   expect(sent).toBe(false);
+});
+
+test("CLI button fails when the native button send is rejected", async () => {
+  const result = await runInput(["button", "lock"], true, false, undefined, false);
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr).toContain("Simulator button input failed");
+  expect(result.messages).toEqual([0x04, 0x11]);
 });

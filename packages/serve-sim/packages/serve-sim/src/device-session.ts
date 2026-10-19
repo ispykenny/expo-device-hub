@@ -1351,6 +1351,7 @@ export class DeviceSession {
       const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data);
       const isOrderedMessage =
         buffer[0] === 0x03 ||
+        buffer[0] === 0x04 ||
         buffer[0] === 0x05 ||
         buffer[0] === 0x06 ||
         buffer[0] === 0x0b ||

@@ -49,6 +49,7 @@ let inputSetupError: Error | undefined;
 let keyboardAvailable = true;
 let failInputAfterPasteKeyUp = false;
 let touchError: Error | undefined;
+let buttonError: Error | undefined;
 const inputCalls: string[] = [];
 const keyEvents: { type: string; usage: number }[] = [];
 const pasteWrites: string[] = [];
@@ -122,10 +123,14 @@ const addon = {
       touchEvents.push({ kind: "multiTouch", args });
     }
     async button() {
+      await Bun.sleep(25);
       inputCalls.push("button");
+      if (buttonError) throw buttonError;
     }
     async buttonHid() {
+      await Bun.sleep(25);
       inputCalls.push("buttonHid");
+      if (buttonError) throw buttonError;
     }
     async key(type: string, usage: number) {
       inputCalls.push("key");
@@ -401,6 +406,7 @@ beforeEach(() => {
   keyboardAvailable = true;
   failInputAfterPasteKeyUp = false;
   touchError = undefined;
+  buttonError = undefined;
   inputCalls.length = 0;
   keyEvents.length = 0;
   pasteWrites.length = 0;
@@ -1260,10 +1266,14 @@ describe("native input failure isolation", () => {
     expect(failed.inputUnavailable).toBe(true);
 
     for (const { name, call, result } of inputCommands) {
-      expect({ name, result: await call(failed) }).toEqual({
-        name,
-        result: result === true ? false : undefined,
-      });
+      if (name === "button" || name === "buttonHid") {
+        await expect(call(failed)).rejects.toThrow("Simulator input is unavailable");
+      } else {
+        expect({ name, result: await call(failed) }).toEqual({
+          name,
+          result: result === true ? false : undefined,
+        });
+      }
     }
     expect(inputCalls).toEqual([]);
     expect(hingeAngles).toEqual([]);
@@ -1277,7 +1287,7 @@ describe("native input failure isolation", () => {
     await failed.touch("begin", 0.5, 0.5, 1398, 2034);
     expect(routedScreens).toEqual([3]);
     expect(inputCalls).toEqual([]);
-    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledTimes(3);
     expect(failed.inputUnavailable).toBe(true);
 
     const recovered = new NativeHid("SCREEN-TEST");
@@ -1291,7 +1301,7 @@ describe("native input failure isolation", () => {
     expect(hingePoses).toEqual(["book"]);
     expect(tableModes).toEqual([true]);
     expect(routedScreens).toEqual([3, 1]);
-    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(errorLog).toHaveBeenCalledTimes(3);
   });
 
   test("an individual input error does not latch setup failure", async () => {
@@ -2781,6 +2791,27 @@ describe("native active screen config", () => {
     ws!.send(Buffer.concat([Buffer.from([0x04]), Buffer.from(JSON.stringify({ button: "home" }))]));
     await waitUntil(() => inputCalls.includes("button"));
   });
+
+  test.each([{ button: "lock" }, { page: 12, usage: 233 }])(
+    "button failure reaches its input barrier: %j",
+    async (button) => {
+      errorLog = spyOn(console, "error").mockImplementation(() => {});
+      await start({ width: 1170, height: 2532, orientation: "portrait", screenId: 1 });
+      buttonError = new Error("CoreDevice button input is unavailable or failed");
+      const acknowledgement = new Promise<Buffer>((resolve) => {
+        ws!.on("message", (data: WebSocket.RawData) => {
+          const buffer = Buffer.from(data as Buffer);
+          if (buffer[0] === 0x91) resolve(buffer);
+        });
+      });
+      ws!.send(Buffer.concat([Buffer.from([0x04]), Buffer.from(JSON.stringify(button))]));
+      ws!.send(Buffer.from([0x11]));
+      expect([...(await acknowledgement)]).toEqual([0x91, 0]);
+      expect(inputCalls.filter((call) => call === "button" || call === "buttonHid")).toEqual([
+        "page" in button ? "buttonHid" : "button",
+      ]);
+    },
+  );
 
   test.each([1, undefined])(
     "streams after input setup fails with screen ID %s",

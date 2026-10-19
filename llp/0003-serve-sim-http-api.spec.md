@@ -5,7 +5,7 @@
 **Systems:** ServeSim, HubClient
 **Author:** Gabe Debes
 **Date:** 2026-09-23
-**Revised:** 2026-10-15 (rotation readback and app actions; clipboard; server-wide preview sharing; capture reboot status and recording admission; device-state recording manifest; settings and device actions; action catalog)
+**Revised:** 2026-10-19 (button input acknowledgements); 2026-10-15 (rotation readback and app actions; clipboard; server-wide preview sharing; capture reboot status and recording admission; device-state recording manifest; settings and device actions; action catalog)
 **Related:** LLP 0001, LLP 0002
 
 > File paths such as `src/…` are relative to `packages/serve-sim/packages/serve-sim`, unless the text gives a path from the repository root.
@@ -280,6 +280,13 @@ which fails the command even if the refusal arrives after the transport opens.
 A connection that never admits input fails after ten seconds. Older helpers
 without the state flag retain their open-based behavior [observed:
 `src/socket/cli-input.ts`, `src/index.ts`, `src/state.ts`].
+
+Button commands on admission-aware helpers also send the `0x11` input barrier
+and wait for `0x91`. The barrier waits for preceding button sends and returns
+failure if a native button request rejected. This reports transport errors;
+it does not independently verify guest delivery. Older helpers without the
+state flag retain their timed close [observed: `index.ts` `button`,
+`DeviceSession.handleHidMessage`; LLP 0004 [Hardware buttons](0004-serve-sim-hinge-controls.explainer.md#hardware-buttons)].
 
 The CDP bridge forwards frames verbatim in both directions. The token
 subprotocol is not forwarded upstream, so the credential stops at serve-sim.
