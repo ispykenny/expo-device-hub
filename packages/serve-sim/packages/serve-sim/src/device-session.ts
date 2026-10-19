@@ -371,7 +371,15 @@ export class DeviceSession {
   private readonly activeHidKeyUsages = new WeakMap<HidSocket, Set<number>>();
   private readonly activeHidKeyUsageCounts = new Map<number, number>();
   private readonly axHandledKeyUsages = new WeakMap<HidSocket, Set<number>>();
-  private readonly failedInputSockets = new WeakSet<HidSocket>();
+  /**
+   * Ordered input numbered in arrival order, and the numbers of the messages that failed.
+   * A barrier reports only failures numbered before it, so it neither reports nor clears
+   * the failure of input that arrived after it.
+   */
+  private readonly orderedInputFailures = new WeakMap<
+    HidSocket,
+    { next: number; failed: number[] }
+  >();
   private readonly overloadedHidSockets = new WeakSet<HidSocket>();
   /** Queue key for input the server sends itself, so it takes turns with viewers' input. */
   private readonly serverInput: HidSocket = { send() {}, on() {}, close() {} };
@@ -1366,11 +1374,14 @@ export class DeviceSession {
       if (isOrderedMessage) {
         this.inFlightOrderedMessages.set(ws, (this.inFlightOrderedMessages.get(ws) ?? 0) + 1);
       }
+      let failures = this.orderedInputFailures.get(ws);
+      if (!failures) this.orderedInputFailures.set(ws, (failures = { next: 0, failed: [] }));
+      const sequence = isOrderedMessage ? failures.next++ : failures.next;
       const priorOrderedMessages =
         buffer[0] === 0x11 ? [...(this.pendingOrderedMessages.get(ws) ?? [])] : undefined;
-      const operation = this.handleHidMessage(buffer, ws, priorOrderedMessages)
+      const operation = this.handleHidMessage(buffer, ws, priorOrderedMessages, sequence)
         .catch(() => {
-          if (isOrderedMessage) this.failedInputSockets.add(ws);
+          if (isOrderedMessage) failures.failed.push(sequence);
         })
         .finally(() => {
           const remaining = (this.inFlightHidMessages.get(ws) ?? 1) - 1;
@@ -1420,6 +1431,7 @@ export class DeviceSession {
     data: Buffer,
     ws: HidSocket,
     priorOrderedMessages?: Promise<void>[],
+    barrierSequence = 0,
   ): Promise<void> {
     if (data.length < 1) return;
     const generation = this.inputGeneration;
@@ -1769,10 +1781,13 @@ export class DeviceSession {
         // while it waits, but must not postpone the acknowledgment forever.
         await Promise.all(priorOrderedMessages ?? []);
         if (this.phase === "running" && this.hidSockets.has(ws)) {
-          const ok = !this.failedInputSockets.has(ws) && !this.hid.inputUnavailable;
-          // A barrier reports the failures since the previous barrier, so one failed
-          // button does not fail a later Copy on the same socket.
-          this.failedInputSockets.delete(ws);
+          // Report and clear only failures of input that arrived before this barrier, so one
+          // failed button does not fail a later Copy, and a later failure waits for its barrier.
+          const failures = this.orderedInputFailures.get(ws);
+          const failed = failures?.failed.some((sequence) => sequence < barrierSequence) ?? false;
+          if (failures)
+            failures.failed = failures.failed.filter((sequence) => sequence >= barrierSequence);
+          const ok = !failed && !this.hid.inputUnavailable;
           ws.send(
             requestId === undefined
               ? Buffer.from([0x91, ok ? 1 : 0])

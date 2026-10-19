@@ -479,9 +479,10 @@ baseline/follow-up comparison, 2026-10-19; feedback on #366,
 The opt-in `core-device-buttons.e2e.test.ts` checks UIKit scene deactivation for
 Lock/app switcher and actual UIKit touches with button encoding hidden.
 
-`NativeHid` propagates button errors to the socket's failed-input latch. The
-next input barrier reports the failure and clears the latch, so one failed button
-does not fail later barriers, such as a viewer's Copy. A CoreDevice release that
+`NativeHid` propagates button errors to the socket's input barrier. The first
+barrier that arrived after the button reports the failure and clears it, so one
+failed button does not fail later barriers, such as a viewer's Copy [observed:
+`orderedInputFailures` in `DeviceSession`]. A CoreDevice release that
 fails is sent once more after 50 ms, because a lost release leaves the button
 held in the guest; the request reports the first error only if the retry fails
 too [observed: `ButtonRelease` in `StreamingPolicy`, `HIDInjector.sendButtonHID`].

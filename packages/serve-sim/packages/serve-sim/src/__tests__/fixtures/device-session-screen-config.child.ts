@@ -50,6 +50,8 @@ let keyboardAvailable = true;
 let failInputAfterPasteKeyUp = false;
 let touchError: Error | undefined;
 let buttonError: Error | undefined;
+/** Per-call delay and result for button presses, before `buttonError` applies. */
+const buttonResults: { delayMs: number; error?: Error }[] = [];
 const inputCalls: string[] = [];
 const keyEvents: { type: string; usage: number }[] = [];
 const pasteWrites: string[] = [];
@@ -123,9 +125,11 @@ const addon = {
       touchEvents.push({ kind: "multiTouch", args });
     }
     async button() {
-      await Bun.sleep(25);
+      const result = buttonResults.shift();
+      await Bun.sleep(result?.delayMs ?? 25);
       inputCalls.push("button");
-      if (buttonError) throw buttonError;
+      const error = result ? result.error : buttonError;
+      if (error) throw error;
     }
     async buttonHid() {
       await Bun.sleep(25);
@@ -407,6 +411,7 @@ beforeEach(() => {
   failInputAfterPasteKeyUp = false;
   touchError = undefined;
   buttonError = undefined;
+  buttonResults.length = 0;
   inputCalls.length = 0;
   keyEvents.length = 0;
   pasteWrites.length = 0;
@@ -2816,6 +2821,34 @@ describe("native active screen config", () => {
       expect([...acknowledgements[1]!]).toEqual([0x91, 1]);
     },
   );
+
+  test("a barrier does not take the failure of a button sent after it", async () => {
+    errorLog = spyOn(console, "error").mockImplementation(() => {});
+    await start({ width: 1170, height: 2532, orientation: "portrait", screenId: 1 });
+    // The first button succeeds slowly; the second fails while the first barrier still waits.
+    buttonResults.push(
+      { delayMs: 150 },
+      { delayMs: 25, error: new Error("CoreDevice button input is unavailable or failed") },
+    );
+    const acknowledgements: Buffer[] = [];
+    ws!.on("message", (data: WebSocket.RawData) => {
+      const buffer = Buffer.from(data as Buffer);
+      if (buffer[0] === 0x91) acknowledgements.push(buffer);
+    });
+    const lock = Buffer.concat([
+      Buffer.from([0x04]),
+      Buffer.from(JSON.stringify({ button: "lock" })),
+    ]);
+    ws!.send(lock);
+    ws!.send(Buffer.from([0x11]));
+    ws!.send(lock);
+    ws!.send(Buffer.from([0x11]));
+    await waitUntil(() => acknowledgements.length === 2);
+    expect(acknowledgements.map((ack) => [...ack])).toEqual([
+      [0x91, 1],
+      [0x91, 0],
+    ]);
+  });
 
   test.each([1, undefined])(
     "streams after input setup fails with screen ID %s",

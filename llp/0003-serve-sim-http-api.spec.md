@@ -283,8 +283,9 @@ without the state flag retain their open-based behavior [observed:
 
 Button commands on admission-aware helpers also send the `0x11` input barrier
 and wait for `0x91`. The barrier waits for preceding button sends and returns
-failure if a native button request rejected since the previous barrier on that
-socket. This reports transport errors;
+failure if an ordered input message that arrived before it on that socket
+rejected. It reports and clears only those failures; a failure of input that
+arrived after it waits for the next barrier. This reports transport errors;
 it does not independently verify guest delivery. Older helpers without the
 state flag retain their timed close [observed: `index.ts` `button`,
 `DeviceSession.handleHidMessage`; LLP 0004 [Hardware buttons](0004-serve-sim-hinge-controls.explainer.md#hardware-buttons)].
