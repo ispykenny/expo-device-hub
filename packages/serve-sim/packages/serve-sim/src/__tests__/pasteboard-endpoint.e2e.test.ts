@@ -18,6 +18,7 @@ import {
   pasteboardFixture,
   pasteboardTool,
   SAFARI_BUNDLE,
+  waitForHostPasteboard,
   writeTestPasteboard,
 } from "./pasteboard-sim";
 import { e2eDevice, requireE2E } from "./e2e-preconditions";
@@ -449,6 +450,7 @@ for (const app of PASTEBOARD_TEST_APPS) {
     test("returns JSON text for an explicit device", async () => {
       const probe = `serve-sim-pasteboard-probe-${app.label.replace(/\s+/g, "-")}`;
       writeTestPasteboard(bootedUdid!, probe);
+      await waitForHostPasteboard(bootedUdid!, probe);
       const res = await middleware(pasteboardRequest(`?device=${encodeURIComponent(bootedUdid!)}`));
       expect(res?.status).toBe(200);
       expect(res?.headers.get("content-type")).toBe("application/json");
@@ -467,6 +469,7 @@ for (const app of PASTEBOARD_TEST_APPS) {
         );
         expect(write?.status).toBe(200);
         expect(await write!.json()).toEqual({ ok: true });
+        await waitForHostPasteboard(bootedUdid!, probe);
 
         const read = await middleware(pasteboardRequest(query));
         expect(read?.status).toBe(200);
