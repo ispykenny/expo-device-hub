@@ -474,13 +474,18 @@ under CoreDevice ownership and then accept host Indigo sends without delivering
 them. On the owned iPhone 17 Pro / iOS 27.0 Simulator, BackBoard logged this
 disconnect; #366's Indigo Lock left Settings visible, while the CoreDevice Lock
 showed the Lock Screen and `expose_All` showed the app switcher [observed: local
-Codex baseline/follow-up comparison, 2026-10-19; feedback on #366,
+baseline/follow-up comparison, 2026-10-19; feedback on #366,
 `discussion_r4316167519`]. A host barrier alone is not guest-delivery evidence.
 The opt-in `core-device-buttons.e2e.test.ts` checks UIKit scene deactivation for
 Lock/app switcher and actual UIKit touches with button encoding hidden.
 
-`NativeHid` propagates button errors to the socket's failed-input latch. Buttons
-join the ordered set awaited by the input barrier, and the CLI waits for that
+`NativeHid` propagates button errors to the socket's failed-input latch. The
+next input barrier reports the failure and clears the latch, so one failed button
+does not fail later barriers, such as a viewer's Copy. A CoreDevice release that
+fails is sent once more after 50 ms, because a lost release leaves the button
+held in the guest; the request reports the first error only if the retry fails
+too [observed: `ButtonRelease` in `StreamingPolicy`, `HIDInjector.sendButtonHID`].
+Buttons join the ordered set awaited by the input barrier, and the CLI waits for that
 barrier on helpers advertising input admission. The CLI retains its earlier
 send-and-close behavior for older helpers. Home still foregrounds SpringBoard;
 unsupported CoreDevice touch retains the existing legacy button path [observed:

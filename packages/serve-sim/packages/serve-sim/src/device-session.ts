@@ -1770,6 +1770,9 @@ export class DeviceSession {
         await Promise.all(priorOrderedMessages ?? []);
         if (this.phase === "running" && this.hidSockets.has(ws)) {
           const ok = !this.failedInputSockets.has(ws) && !this.hid.inputUnavailable;
+          // A barrier reports the failures since the previous barrier, so one failed
+          // button does not fail a later Copy on the same socket.
+          this.failedInputSockets.delete(ws);
           ws.send(
             requestId === undefined
               ? Buffer.from([0x91, ok ? 1 : 0])

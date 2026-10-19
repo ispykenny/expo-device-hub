@@ -2798,18 +2798,22 @@ describe("native active screen config", () => {
       errorLog = spyOn(console, "error").mockImplementation(() => {});
       await start({ width: 1170, height: 2532, orientation: "portrait", screenId: 1 });
       buttonError = new Error("CoreDevice button input is unavailable or failed");
-      const acknowledgement = new Promise<Buffer>((resolve) => {
-        ws!.on("message", (data: WebSocket.RawData) => {
-          const buffer = Buffer.from(data as Buffer);
-          if (buffer[0] === 0x91) resolve(buffer);
-        });
+      const acknowledgements: Buffer[] = [];
+      ws!.on("message", (data: WebSocket.RawData) => {
+        const buffer = Buffer.from(data as Buffer);
+        if (buffer[0] === 0x91) acknowledgements.push(buffer);
       });
       ws!.send(Buffer.concat([Buffer.from([0x04]), Buffer.from(JSON.stringify(button))]));
       ws!.send(Buffer.from([0x11]));
-      expect([...(await acknowledgement)]).toEqual([0x91, 0]);
+      await waitUntil(() => acknowledgements.length === 1);
+      expect([...acknowledgements[0]!]).toEqual([0x91, 0]);
       expect(inputCalls.filter((call) => call === "button" || call === "buttonHid")).toEqual([
         "page" in button ? "buttonHid" : "button",
       ]);
+      // The next barrier reports only newer failures, so a later Copy is not refused.
+      ws!.send(Buffer.from([0x11]));
+      await waitUntil(() => acknowledgements.length === 2);
+      expect([...acknowledgements[1]!]).toEqual([0x91, 1]);
     },
   );
 

@@ -622,11 +622,11 @@ actor HIDInjector {
             }
             switch phase {
             case "down": try emit(true)
-            case "up": try emit(false)
+            case "up": try await ButtonRelease.release { try emit(false) }
             default:
                 try emit(true)
                 try? await Task.sleep(for: .seconds(0.05))
-                try emit(false)
+                try await ButtonRelease.release { try emit(false) }
             }
             return
         }
