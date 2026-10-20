@@ -1,7 +1,8 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
-import { execFileSync, spawnSync } from "child_process";
+import { execFile, execFileSync, spawnSync } from "child_process";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import { promisify } from "util";
 import WebSocket from "ws";
 import { WS_MSG_INPUT_ADMITTED } from "../socket/input-protocol";
 import { stateFileForDevice, type ServeSimDeviceState } from "../state";
@@ -54,6 +55,17 @@ describeWithSim(`wheel-to-touch handoff (sim ${udid ?? "<skipped>"})`, () => {
     });
   }
 
+  // The server closes an input socket that misses pongs for 10 s, and a synchronous
+  // child process stops this process from answering. An app relaunch on a freshly
+  // booted CI Simulator can take that long, so relaunch without blocking.
+  async function simctlAsync(...args: string[]): Promise<string> {
+    const { stdout } = await promisify(execFile)("xcrun", ["simctl", ...args], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    return stdout;
+  }
+
   function lines(): string[] {
     try {
       return readFileSync(fixtureLog, "utf8").split("\n").filter(Boolean);
@@ -87,9 +99,9 @@ describeWithSim(`wheel-to-touch handoff (sim ${udid ?? "<skipped>"})`, () => {
   async function launch(): Promise<number> {
     const start = lines().length;
     try {
-      simctl("terminate", udid!, APP);
+      await simctlAsync("terminate", udid!, APP);
     } catch {}
-    const launched = simctl("launch", udid!, APP, "--scroll-test");
+    const launched = await simctlAsync("launch", udid!, APP, "--scroll-test");
     const pid = /:\s*(\d+)\s*$/.exec(launched.trim());
     if (!pid) throw new Error(`Could not identify the fixture process: ${launched}`);
     fixturePid = Number(pid[1]);
@@ -132,6 +144,8 @@ describeWithSim(`wheel-to-touch handoff (sim ${udid ?? "<skipped>"})`, () => {
   }
 
   function send(socket: WebSocket, tag: number, payload: object): void {
+    // A closed socket drops sends without an error, so report it here.
+    expect(socket.readyState, "input socket is open").toBe(WebSocket.OPEN);
     socket.send(Buffer.concat([Buffer.from([tag]), Buffer.from(JSON.stringify(payload))]));
   }
 
